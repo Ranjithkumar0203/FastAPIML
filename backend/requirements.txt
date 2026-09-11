@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+sqlalchemy 
+psycopg[binary] 
+python-dotenv 
+PyJWT 
+pwdlib[argon2] 
+langchain 
+langgraph 
+langchain-huggingface 
+huggingface-hub 
+langgraph-checkpoint-postgres

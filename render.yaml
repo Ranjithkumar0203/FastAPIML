@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: mlfastapi-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    autoDeploy: false
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: POSTGRES_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: HF_Token
+        sync: false
+      - key: HF_MODEL
+        value: Qwen/Qwen3-Next-80B-A3B-Instruct
+      - key: HF_PROVIDER
+        value: hf-inference
+      - key: CORS_ORIGINS
+        value: https://mlfastapi-web.onrender.com
+
+  - type: web
+    name: mlfastapi-web
+    runtime: docker
+    plan: free
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    autoDeploy: false
+    healthCheckPath: /
+    envVars:
+      - key: BACKEND_HOST
+        fromService:
+          type: web
+          name: mlfastapi-api
+          property: host

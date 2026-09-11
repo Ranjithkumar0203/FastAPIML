@@ -1,0 +1,40 @@
+<div class="chat-layout container-fluid p-0">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand"><div class="brand-icon">∑</div><div><strong>Neural AI</strong><small>Math Assistant</small></div></div>
+      <button class="new-chat btn btn-outline-light" type="button" (click)="createNewChat()"><span>+</span> New Chat</button>
+    </div>
+    <div class="history-title">Previous Chats</div>
+    <div class="thread-list">
+      @if (loadingThreads) { <div class="empty-history">Loading...</div> }
+      @for (thread of threads; track trackByThread($index, thread)) {
+        <div class="thread-item" [class.active]="currentThreadId === thread.id" (click)="selectThread(thread)">
+          <div class="thread-icon">💬</div><div class="thread-info"><div class="thread-title">{{ thread.title }}</div><div class="thread-date">{{ thread.updated_at | date:'MMM d, h:mm a' }}</div></div>
+          <button class="delete-button btn btn-link p-0" type="button" title="Delete" (click)="deleteThread($event, thread)">×</button>
+        </div>
+      }
+      @if (!loadingThreads && threads.length === 0) { <div class="empty-history">No previous chats</div> }
+    </div>
+    <div class="sidebar-bottom">
+      <div class="user-info"><div class="avatar">{{ userEmail.charAt(0).toUpperCase() }}</div><div class="user-email">{{ userEmail }}</div></div>
+      <button class="logout btn btn-link p-2" type="button" (click)="logout()">⇥ Logout</button>
+    </div>
+  </aside>
+  <main class="main-chat">
+    <header class="chat-header px-3 px-lg-4"><div><h2>{{ currentThreadTitle }}</h2><span>ReLU / Leaky ReLU Assistant</span></div><button class="reset btn btn-outline-secondary" type="button" (click)="resetChat()">↻ Reset Chat</button></header>
+    <div class="messages" #messagesContainer>
+      @if (messages.length === 0) {
+        <div class="welcome"><div class="welcome-icon">∑</div><h1>How can I help you?</h1><p>Ask me to calculate ReLU or Leaky ReLU.</p><div class="examples d-flex flex-wrap justify-content-center gap-2"><button class="btn btn-outline-secondary" type="button" (click)="messageText = 'Calculate ReLU(-5)'">Calculate ReLU(-5)</button><button class="btn btn-outline-secondary" type="button" (click)="messageText = 'Calculate Leaky ReLU(-5)'">Calculate Leaky ReLU(-5)</button><button class="btn btn-outline-secondary" type="button" (click)="messageText = 'Explain ReLU'">Explain ReLU</button></div></div>
+      }
+      @for (message of messages; track trackByMessage($index)) {
+        <div class="message-row" [class.user-row]="message.role === 'user'" [class.ai-row]="message.role === 'assistant'">
+          @if (message.role === 'assistant') { <div class="message-avatar ai">∑</div> }
+          <div class="message-bubble" [class.user-bubble]="message.role === 'user'" [class.ai-bubble]="message.role === 'assistant'">{{ message.content }}</div>
+          @if (message.role === 'user') { <div class="message-avatar user">U</div> }
+        </div>
+      }
+      @if (loading) { <div class="message-row ai-row"><div class="message-avatar ai">∑</div><div class="message-bubble ai-bubble"><div class="typing"><span></span><span></span><span></span></div></div></div> }
+    </div>
+    <div class="input-area"><div class="input-box input-group"><textarea class="form-control" [(ngModel)]="messageText" placeholder="Ask about ReLU or Leaky ReLU..." rows="1" (keydown)="onEnter($event)"></textarea><button class="send btn btn-dark" type="button" [disabled]="!messageText.trim() || loading" (click)="sendMessage()">➤</button></div><div class="input-hint">Press Enter to send · Shift + Enter for new line</div></div>
+  </main>
+</div>

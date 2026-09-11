@@ -1,0 +1,21 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+	"fastapi",
+	"uvicorn[standard]",
+	"sqlalchemy",
+	"psycopg[binary]",
+	"python-dotenv",
+	"PyJWT",
+	"pwdlib[argon2]",
+	"langchain",
+	"langgraph",
+	"langchain-huggingface",
+	"huggingface-hub",
+	"langgraph-checkpoint-postgres",
+	"pydantic[email]",
+]
