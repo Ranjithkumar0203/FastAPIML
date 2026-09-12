@@ -8,7 +8,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from models import User
 from pwdlib import PasswordHash
 import jwt
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 load_dotenv()
 
@@ -62,9 +63,9 @@ def get_user_id_from_refresh_token(token: str) -> str:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
 
-def get_current_user(
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> User:
     token = credentials.credentials
     try:
@@ -77,7 +78,8 @@ def get_current_user(
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    user = db.get(User, user_id)
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return user

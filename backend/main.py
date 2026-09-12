@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent import create_graph, initialize_agent
 from auth import (
@@ -33,16 +34,15 @@ from schemas import (
 
 load_dotenv()
 POSTGRES_URL = os.getenv("POSTGRES_URL")
-CORS_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:4200").split(",")
-    if origin.strip()
+CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:4200").split(",") if origin.strip()
 ]
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global graph
     await initialize_agent()
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
     async with AsyncPostgresSaver.from_conn_string(POSTGRES_URL) as checkpointer:
         await checkpointer.setup()
         graph = create_graph(checkpointer)
@@ -59,8 +59,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-Base.metadata.create_all(bind=engine)
-
 graph = None
 
 
@@ -70,8 +68,9 @@ def root():
 
 
 @app.post("/auth/register", response_model=TokenResponse)
-def register(request: RegisterRequest, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == request.email).first()
+async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == request.email))
+    existing = result.scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -80,8 +79,8 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
         password_hash=hash_password(request.password),
     )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    await db.commit()
+    await db.refresh(user)
 
     return {
         "access_token": create_access_token(user.id),
@@ -91,8 +90,9 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/auth/login", response_model=TokenResponse)
-def login(request: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == request.email).first()
+async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == request.email))
+    user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
@@ -107,9 +107,10 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/auth/refresh", response_model=TokenResponse)
-def refresh(request: RefreshRequest, db: Session = Depends(get_db)):
+async def refresh(request: RefreshRequest, db: AsyncSession = Depends(get_db)):
     user_id = get_user_id_from_refresh_token(request.refresh_token)
-    user = db.get(User, user_id)
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
@@ -126,9 +127,9 @@ def me(current_user: User = Depends(get_current_user)):
 
 
 @app.post("/threads", response_model=ThreadResponse)
-def create_thread(
+async def create_thread(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     now = datetime.now(timezone.utc)
     thread = Thread(
@@ -139,8 +140,8 @@ def create_thread(
         updated_at=now,
     )
     db.add(thread)
-    db.commit()
-    db.refresh(thread)
+    await db.commit()
+    await db.refresh(thread)
 
     return {
         "id": thread.id,
@@ -151,16 +152,16 @@ def create_thread(
 
 
 @app.get("/threads", response_model=list[ThreadResponse])
-def get_threads(
+async def get_threads(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    threads = (
-        db.query(Thread)
-        .filter(Thread.user_id == current_user.id)
+    result = await db.execute(
+        select(Thread)
+        .where(Thread.user_id == current_user.id)
         .order_by(Thread.updated_at.desc())
-        .all()
     )
+    threads = result.scalars().all()
 
     return [
         {
@@ -174,25 +175,26 @@ def get_threads(
 
 
 @app.get("/threads/{thread_id}/messages", response_model=list[MessageResponse])
-def get_messages(
+async def get_messages(
     thread_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    thread = (
-        db.query(Thread)
-        .filter(Thread.id == thread_id, Thread.user_id == current_user.id)
-        .first()
+    result = await db.execute(
+        select(Thread).where(
+            Thread.id == thread_id, Thread.user_id == current_user.id
+        )
     )
+    thread = result.scalar_one_or_none()
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    messages = (
-        db.query(Message)
-        .filter(Message.thread_id == thread_id)
+    result = await db.execute(
+        select(Message)
+        .where(Message.thread_id == thread_id)
         .order_by(Message.created_at.asc())
-        .all()
     )
+    messages = result.scalars().all()
 
     return [
         {
@@ -209,13 +211,14 @@ def get_messages(
 async def chat(
     request: ChatRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    thread = (
-        db.query(Thread)
-        .filter(Thread.id == request.thread_id, Thread.user_id == current_user.id)
-        .first()
+    result = await db.execute(
+        select(Thread).where(
+            Thread.id == request.thread_id, Thread.user_id == current_user.id
+        )
     )
+    thread = result.scalar_one_or_none()
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
 
@@ -230,7 +233,7 @@ async def chat(
         thread.title = request.message[:50]
 
     thread.updated_at = datetime.now(timezone.utc)
-    db.commit()
+    await db.commit()
 
     config = {
         "configurable": {
@@ -260,25 +263,26 @@ async def chat(
     )
     db.add(ai_message)
     thread.updated_at = datetime.now(timezone.utc)
-    db.commit()
+    await db.commit()
 
     return {"thread_id": thread.id, "message": ai_content}
 
 
 @app.delete("/threads/{thread_id}")
-def delete_thread(
+async def delete_thread(
     thread_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    thread = (
-        db.query(Thread)
-        .filter(Thread.id == thread_id, Thread.user_id == current_user.id)
-        .first()
+    result = await db.execute(
+        select(Thread).where(
+            Thread.id == thread_id, Thread.user_id == current_user.id
+        )
     )
+    thread = result.scalar_one_or_none()
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    db.delete(thread)
-    db.commit()
+    await db.delete(thread)
+    await db.commit()
     return {"message": "Thread deleted"}
