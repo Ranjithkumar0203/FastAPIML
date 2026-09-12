@@ -43,10 +43,11 @@ When the server starts, `lifespan()` runs in this order:
 
 The compiled graph is assigned to the module-level `graph` variable. The `/chat` endpoint uses this shared graph for requests.
 
-At module import time, this line creates the application tables if they do not already exist:
+During the FastAPI lifespan startup, this async block creates the application tables if they do not already exist:
 
 ```python
-Base.metadata.create_all(bind=engine)
+async with engine.begin() as connection:
+    await connection.run_sync(Base.metadata.create_all)
 ```
 
 The tables come from `models.py`: `users`, `threads`, and `messages`.
@@ -65,13 +66,13 @@ Owns the HTTP API. It:
 
 ### `database.py`
 
-Creates the synchronous SQLAlchemy engine and session factory:
+Creates the asynchronous SQLAlchemy engine and session factory:
 
 ```text
-DATABASE_URL -> engine -> SessionLocal -> get_db() -> route dependency
+DATABASE_URL -> AsyncEngine -> AsyncSession -> get_db() -> route dependency
 ```
 
-`get_db()` yields one session to a route and closes it in `finally`, so each request gets a controlled database-session lifetime.
+`get_db()` yields one `AsyncSession` to a route and closes it when the request finishes, so database I/O can be awaited without blocking the event loop.
 
 ### `models.py`
 
@@ -252,7 +253,7 @@ The backend reads values from the environment or a local `.env` file:
 
 - `graph` is `None` until the FastAPI lifespan startup completes. Requests should be served only after startup has initialized the graph.
 - `initialize_agent()` is guarded so repeated calls do not recreate the model agent.
-- The application uses synchronous SQLAlchemy route dependencies and an asynchronous LangGraph invocation in `/chat`.
+- The application uses async SQLAlchemy route dependencies and an asynchronous LangGraph invocation in `/chat`.
 - The user message is committed before the graph runs. The assistant message is committed after the graph returns. A graph failure can therefore leave the user message saved without an assistant response.
 - Thread ownership is checked before reading messages, chatting, or deleting, which is the main authorization boundary for conversation data.
 - CORS is configured from `CORS_ORIGINS`; in production it should contain the deployed frontend origin rather than a broad wildcard.
