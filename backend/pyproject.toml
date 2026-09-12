@@ -10,7 +10,7 @@ dependencies = [
 	"sqlalchemy",
 	"psycopg[binary]",
 	"python-dotenv",
-	"PyJWT",
+	"pyjwt",
 	"pwdlib[argon2]",
 	"langchain",
 	"langgraph",

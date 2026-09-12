@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 from agent import create_graph, initialize_agent
 from auth import (
     create_access_token,
+    create_refresh_token,
     get_current_user,
+    get_user_id_from_refresh_token,
     hash_password,
     verify_password,
 )
@@ -24,6 +26,7 @@ from schemas import (
     LoginRequest,
     MessageResponse,
     RegisterRequest,
+    RefreshRequest,
     ThreadResponse,
     TokenResponse,
 )
@@ -80,8 +83,11 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    token = create_access_token(user.id)
-    return {"access_token": token, "token_type": "bearer"}
+    return {
+        "access_token": create_access_token(user.id),
+        "refresh_token": create_refresh_token(user.id),
+        "token_type": "bearer",
+    }
 
 
 @app.post("/auth/login", response_model=TokenResponse)
@@ -93,8 +99,25 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     if not verify_password(request.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    token = create_access_token(user.id)
-    return {"access_token": token, "token_type": "bearer"}
+    return {
+        "access_token": create_access_token(user.id),
+        "refresh_token": create_refresh_token(user.id),
+        "token_type": "bearer",
+    }
+
+
+@app.post("/auth/refresh", response_model=TokenResponse)
+def refresh(request: RefreshRequest, db: Session = Depends(get_db)):
+    user_id = get_user_id_from_refresh_token(request.refresh_token)
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    return {
+        "access_token": create_access_token(user.id),
+        "refresh_token": create_refresh_token(user.id),
+        "token_type": "bearer",
+    }
 
 
 @app.get("/auth/me")
